@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Survey List</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">Student Survey</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/survey/">Submit Survey</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/surveys/">View Surveys</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <h2>Survey Submissions</h2>
+        <div class="alert alert-info" id="loadingMessage">Loading surveys...</div>
+        <div id="errorContainer" class="alert alert-danger" style="display: none;"></div>
+        <div id="surveyContainer" style="display: none;">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Date</th>
+                        <th>Location</th>
+                        <th>Recommendation</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="surveyList"></tbody>
+            </table>
+            <div class="d-flex justify-content-between">
+                <button id="prevPage" class="btn btn-secondary" disabled>Previous</button>
+                <span id="pageInfo">Page 1</span>
+                <button id="nextPage" class="btn btn-secondary" disabled>Next</button>
+            </div>
+        </div>
+        <div id="noSurveys" class="alert alert-warning" style="display: none;">
+            No surveys have been submitted yet.
+        </div>
+    </div>
+
+    <div class="modal fade" id="surveyDetailModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Survey Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="surveyDetailContent"></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const API_BASE_URL = "{{ API_BASE_URL }}";
+            console.log('API Base URL:', API_BASE_URL);
+
+            // Check if the API_BASE_URL is empty or not set properly
+            if (!API_BASE_URL || API_BASE_URL === "{{ API_BASE_URL }}") {
+                console.error('API_BASE_URL is not properly set. Falling back to current domain.');
+                // Fallback to extracting from current URL
+                const currentUrl = window.location.href;
+                const urlParts = currentUrl.split('/');
+                API_BASE_URL = urlParts[0] + '//' + urlParts[2];
+                console.log('Fallback API Base URL:', API_BASE_URL);
+            }
+
+            const surveyList = document.getElementById('surveyList');
+            const loadingMessage = document.getElementById('loadingMessage');
+            const errorContainer = document.getElementById('errorContainer');
+            const surveyContainer = document.getElementById('surveyContainer');
+            const noSurveys = document.getElementById('noSurveys');
+            const prevPageBtn = document.getElementById('prevPage');
+            const nextPageBtn = document.getElementById('nextPage');
+            const pageInfo = document.getElementById('pageInfo');
+
+            let currentPage = 1;
+            let totalPages = 1;
+
+            function fetchSurveys(page = 1) {
+                loadingMessage.style.display = 'block';
+                surveyContainer.style.display = 'none';
+                noSurveys.style.display = 'none';
+                errorContainer.style.display = 'none';
+
+                fetch(`${API_BASE_URL}/api/surveys/?page=${page}`)
+                    .then(response => {
+                        if (!response.ok) throw new Error('Failed to fetch surveys');
+                        return response.json();
+                    })
+                    .then(data => {
+                        loadingMessage.style.display = 'none';
+                        if (data.results && data.results.length > 0) {
+                            currentPage = page;
+                            totalPages = Math.ceil(data.count / 10);
+                            pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+                            prevPageBtn.disabled = currentPage <= 1;
+                            nextPageBtn.disabled = currentPage >= totalPages;
+                            displaySurveys(data.results);
+                            surveyContainer.style.display = 'block';
+                        } else {
+                            noSurveys.style.display = 'block';
+                        }
+                    })
+                    .catch(error => {
+                        loadingMessage.style.display = 'none';
+                        errorContainer.textContent = 'Error loading surveys: ' + error.message;
+                        errorContainer.style.display = 'block';
+                        console.error('Fetch error:', error);
+                    });
+            }
+
+            function displaySurveys(surveys) {
+                surveyList.innerHTML = '';
+                surveys.forEach(survey => {
+                    const surveyDate = new Date(survey.date_of_survey);
+                    const formattedDate = surveyDate.toLocaleDateString();
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${survey.first_name} ${survey.last_name}</td>
+                        <td>${formattedDate}</td>
+                        <td>${survey.city}, ${survey.state}</td>
+                        <td>${survey.recommendation_likelihood}/10</td>
+                        <td><button class="btn btn-sm btn-primary view-details" data-survey-id="${survey.id}">View Details</button></td>
+                    `;
+                    surveyList.appendChild(row);
+                });
+                document.querySelectorAll('.view-details').forEach(button => {
+                    button.addEventListener('click', function () {
+                        showSurveyDetails(this.getAttribute('data-survey-id'));
+                    });
+                });
+            }
+
+            function showSurveyDetails(surveyId) {
+                const modalContent = document.getElementById('surveyDetailContent');
+                modalContent.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"></div><p>Loading...</p></div>';
+                const modal = new bootstrap.Modal(document.getElementById('surveyDetailModal'));
+                modal.show();
+
+                fetch(`${API_BASE_URL}/api/surveys/${surveyId}/`)
+                    .then(response => {
+                        if (!response.ok) throw new Error('Failed to fetch survey details');
+                        return response.json();
+                    })
+                    .then(survey => {
+                        const surveyDate = new Date(survey.date_of_survey);
+                        const formattedDate = surveyDate.toLocaleDateString();
+                        const likedItems = [];
+                        if (survey.liked_students) likedItems.push('Students');
+                        if (survey.liked_location) likedItems.push('Location');
+                        if (survey.liked_campus) likedItems.push('Campus');
+                        if (survey.liked_atmosphere) likedItems.push('Atmosphere');
+                        if (survey.liked_dorm_rooms) likedItems.push('Dorm Rooms');
+                        if (survey.liked_sports) likedItems.push('Sports');
+                        const interestSourceMap = {
+                            'friends': 'Friends',
+                            'television': 'Television',
+                            'internet': 'Internet',
+                            'other': 'Other'
+                        };
+                        modalContent.innerHTML = `
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h5>Personal Information</h5>
+                                    <p><strong>Name:</strong> ${survey.first_name} ${survey.last_name}</p>
+                                    <p><strong>Address:</strong><br>${survey.street_address}<br>${survey.city}, ${survey.state} ${survey.zip_code}</p>
+                                    <p><strong>Telephone:</strong> ${survey.telephone}</p>
+                                    <p><strong>Email:</strong> ${survey.email}</p>
+                                </div>
+                                <div class="col-md-6">
+                                    <h5>Survey Details</h5>
+                                    <p><strong>Date:</strong> ${formattedDate}</p>
+                                    <p><strong>Liked about university:</strong> ${likedItems.length > 0 ? likedItems.join(', ') : 'None selected'}</p>
+                                    <p><strong>Source of interest:</strong> ${interestSourceMap[survey.interest_source] || survey.interest_source}</p>
+                                    <p><strong>Recommendation likelihood:</strong> ${survey.recommendation_likelihood}/10</p>
+                                </div>
+                            </div>
+                            <div class="row mt-3">
+                                <div class="col"><h5>Comments</h5><p>${survey.comments || 'No comments provided.'}</p></div>
+                            </div>
+                        `;
+                    })
+                    .catch(error => {
+                        modalContent.innerHTML = `<div class="alert alert-danger">Error loading survey details: ${error.message}</div>`;
+                        console.error('Fetch error:', error);
+                    });
+            }
+
+            prevPageBtn.addEventListener('click', () => {
+                if (currentPage > 1) fetchSurveys(currentPage - 1);
+            });
+
+            nextPageBtn.addEventListener('click', () => {
+                if (currentPage < totalPages) fetchSurveys(currentPage + 1);
+            });
+            
+            fetchSurveys();
+        });
+    </script>
+</body>
+</html>
