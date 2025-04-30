@@ -3,7 +3,7 @@ pipeline {
     
     environment {
         // Docker image details
-        DOCKERHUB_CREDENTIALS = credentials('09fd92cd-bf60-4748-81b6-27076c2a5f5d')
+        DOCKER_CREDENTIALS = 'docker-hub-credentials'
 	    BUILD_TIMESTAMP = "${new Date().format("yyyyMMdd-HHmmss")}"
         BASE_IMAGE = 'vrishin/student-survey-api-micro-python'
         IMAGE_TAG = 'new'
