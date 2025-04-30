@@ -5,8 +5,9 @@ pipeline {
         // Docker image details
         BASE_IMAGE = 'vrishin/student-survey-api-micro-python'
         IMAGE_TAG = 'new'
-        DEPLOY_PORT = "8080"
-        // Docker Hub credentials - use Jenkins credentials instead of hardcoding in production
+        DEPLOY_PORT = "8081"  // Changed to 8081 to avoid conflict
+        CONTAINER_PORT = "8080"  // Original container port
+        // Docker Hub credentials
         DOCKER_USERNAME = 'vrishin'
     }
     
@@ -44,6 +45,10 @@ pipeline {
                     } else {
                         env.API_HOST = "localhost"  // Default for development
                     }
+                    
+                    // Check for existing containers and services
+                    sh "sudo netstat -tulpn | grep 8080 || echo 'Port 8080 is in use'"
+                    sh "sudo docker ps | grep -i student-survey || echo 'No existing containers found'"
                 }
             }
         }
@@ -76,7 +81,7 @@ pipeline {
                 script {
                     // Get API host and port for ARG values
                     def apiHost = env.API_HOST ?: "localhost"
-                    def apiPort = env.DEPLOY_PORT ?: "8080"
+                    def apiPort = env.DEPLOY_PORT ?: "8081"
                     
                     // Create a temporary Dockerfile to extend the base image
                     writeFile file: 'CustomDockerfile', text: """
@@ -90,7 +95,7 @@ pipeline {
                         ENV API_BASE_URL="https://${apiHost}:${apiPort}"
                         
                         # Expose the port
-                        EXPOSE ${DEPLOY_PORT}
+                        EXPOSE ${CONTAINER_PORT}
                     """
                     
                     // Build the custom image
@@ -102,17 +107,8 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 script {
-                    // Store password in Jenkins credentials and use them instead in production
-                    // For this example, we'll use the direct password approach
-                    // Create a credentials binding in Jenkins called 'docker-hub-password' for better security
-                    
-                    // Option 1: Using direct password (not recommended for production)
+                    // Using direct password (not recommended for production)
                     sh "echo 'ZXcvbnM0981234#' | docker login -u ${DOCKER_USERNAME} --password-stdin"
-                    
-                    // Option 2: Using Jenkins credentials (recommended for production)
-                    // withCredentials([string(credentialsId: 'docker-hub-password', variable: 'DOCKER_PASSWORD')]) {
-                    //     sh "echo \$DOCKER_PASSWORD | docker login -u ${DOCKER_USERNAME} --password-stdin"
-                    // }
                     
                     // Push Docker image
                     sh "docker push ${env.DOCKER_FULL_IMAGE}"
@@ -127,39 +123,35 @@ pipeline {
             steps {
                 script {
                     def deployEnv = "${params.DEPLOY_ENV}"
-                    def deployCommand = ""
                     
-                    if (deployEnv == 'prod') {
-                        // Production deployment - using Docker directly
-                        deployCommand = """
-                        sudo docker stop student-survey-container || true
-                        sudo docker rm student-survey-container || true
-                        sudo docker run -d --name student-survey-container \
-                            -p ${DEPLOY_PORT}:${DEPLOY_PORT} \
-                            ${env.DOCKER_FULL_IMAGE}
-                        """
-                    } else if (deployEnv == 'staging') {
-                        // Staging deployment
-                        deployCommand = """
-                        sudo docker stop student-survey-container || true
-                        sudo docker rm student-survey-container || true
-                        sudo docker run -d --name student-survey-container \
-                            -p ${DEPLOY_PORT}:${DEPLOY_PORT} \
-                            ${env.DOCKER_FULL_IMAGE}
-                        """
-                    } else {
-                        // Development deployment - local or dev server
-                        deployCommand = """
-                        sudo docker stop student-survey-container || true
-                        sudo docker rm student-survey-container || true
-                        sudo docker run -d --name student-survey-container \
-                            -p ${DEPLOY_PORT}:${DEPLOY_PORT} \
-                            ${env.DOCKER_FULL_IMAGE}
-                        """
-                    }
+                    // Stop any running containers first
+                    sh """
+                    # Find any existing containers using the same image pattern
+                    EXISTING_CONTAINERS=\$(sudo docker ps -a | grep ${BASE_IMAGE} | awk '{print \$1}' || echo '')
                     
-                    echo "Executing deployment command for ${deployEnv} environment"
-                    sh deployCommand
+                    # Stop and remove if they exist
+                    if [ ! -z "\$EXISTING_CONTAINERS" ]; then
+                        sudo docker stop \$EXISTING_CONTAINERS || true
+                        sudo docker rm \$EXISTING_CONTAINERS || true
+                    fi
+                    
+                    # Force remove the specific container name if it exists
+                    sudo docker rm -f student-survey-container || true
+                    """
+                    
+                    // Run the container with the new port mapping
+                    sh """
+                    sudo docker run -d --name student-survey-container \
+                        -p ${DEPLOY_PORT}:${CONTAINER_PORT} \
+                        -e CORS_ALLOW_ALL_ORIGINS=True \
+                        -e CORS_ALLOW_CREDENTIALS=True \
+                        ${env.DOCKER_FULL_IMAGE}
+                    """
+                    
+                    echo "Container deployed on port ${DEPLOY_PORT}"
+                    
+                    // Display running containers
+                    sh "sudo docker ps | grep student-survey"
                 }
             }
         }
@@ -174,6 +166,7 @@ pipeline {
         success {
             echo "Pipeline completed successfully!"
             echo "Deployed image: ${env.DOCKER_FULL_IMAGE}"
+            echo "Application is available at http://localhost:${DEPLOY_PORT}"
         }
         failure {
             echo "Pipeline failed! Check the logs for details."
