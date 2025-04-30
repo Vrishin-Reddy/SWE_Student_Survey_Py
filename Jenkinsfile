@@ -5,15 +5,7 @@ pipeline {
         // Docker image details
         BASE_IMAGE = 'vrishin/student-survey-api-micro-python'
         IMAGE_TAG = 'new'
-        CUSTOM_IMAGE_NAME = 'vrishin/student-survey-api-micro-python'
-        CUSTOM_IMAGE_TAG = "${env.BUILD_NUMBER}"
-        
-        // Deployment details
-        DEPLOYMENT_ENV = "${params.DEPLOY_ENV ?: 'dev'}"
         DEPLOY_PORT = "8080"
-        
-        // AWS credentials for deployment (if using AWS)
-        AWS_CREDENTIALS = 'aws-credentials-id'  // Replace with your Jenkins credential ID
     }
     
     parameters {
@@ -33,15 +25,23 @@ pipeline {
         stage('Prepare') {
             steps {
                 script {
-                    // Use custom tag if provided, otherwise use build number
-                    if (params.CUSTOM_TAG) {
-                        CUSTOM_IMAGE_TAG = params.CUSTOM_TAG
+                    // Define image repository and tag
+                    def DOCKER_REPO = "vrishin/student-survey-api-micro-python"
+                    def DOCKER_TAG = params.CUSTOM_TAG ? params.CUSTOM_TAG : env.BUILD_NUMBER
+                    
+                    // Set the full image name as an environment variable
+                    env.DOCKER_FULL_IMAGE = "${DOCKER_REPO}:${DOCKER_TAG}"
+                    
+                    echo "Building custom Docker image: ${env.DOCKER_FULL_IMAGE}"
+                    
+                    // Set environment-specific variables
+                    if (params.DEPLOY_ENV == 'prod') {
+                        env.API_HOST = "api.yourdomain.com"  // Replace with your production domain
+                    } else if (params.DEPLOY_ENV == 'staging') {
+                        env.API_HOST = "api-staging.yourdomain.com"  // Replace with your staging domain
+                    } else {
+                        env.API_HOST = "localhost"  // Default for development
                     }
-                    
-                    // Set the full image name
-                    FULL_CUSTOM_IMAGE = "${CUSTOM_IMAGE_NAME}:${CUSTOM_IMAGE_TAG}"
-                    
-                    echo "Building image: ${FULL_CUSTOM_IMAGE}"
                 }
             }
         }
@@ -52,6 +52,9 @@ pipeline {
             }
             steps {
                 script {
+                    // Check Docker access before running tests
+                    sh 'sudo chmod 666 /var/run/docker.sock || true'
+                    
                     // Pull the base image first to use for testing
                     sh "docker pull ${BASE_IMAGE}:${IMAGE_TAG}"
                     
@@ -78,14 +81,14 @@ pipeline {
                         ENV CORS_ALLOW_CREDENTIALS=True
                         
                         # Update API_BASE_URL for HTTPS if needed
-                        ENV API_BASE_URL="https://\${params.API_HOST}:\${DEPLOY_PORT}"
+                        ENV API_BASE_URL="https://\${env.API_HOST}:\${DEPLOY_PORT}"
                         
                         # Expose the port
                         EXPOSE ${DEPLOY_PORT}
                     """
                     
                     // Build the custom image
-                    sh "docker build -t ${FULL_CUSTOM_IMAGE} -f CustomDockerfile ."
+                    sh "docker build -t ${env.DOCKER_FULL_IMAGE} -f CustomDockerfile ."
                 }
             }
         }
@@ -99,7 +102,7 @@ pipeline {
                     }
                     
                     // Push Docker image
-                    sh "docker push ${FULL_CUSTOM_IMAGE}"
+                    sh "docker push ${env.DOCKER_FULL_IMAGE}"
                 }
             }
         }
@@ -110,41 +113,35 @@ pipeline {
             }
             steps {
                 script {
-                    def deployEnv = "${DEPLOYMENT_ENV}"
+                    def deployEnv = "${params.DEPLOY_ENV}"
                     def deployCommand = ""
                     
                     if (deployEnv == 'prod') {
-                        // Production deployment - for example using AWS ECS
-                        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', 
-                                        accessKeyVariable: 'AWS_ACCESS_KEY_ID', 
-                                        credentialsId: AWS_CREDENTIALS, 
-                                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
-                            // Example: Update ECS service
-                            deployCommand = """
-                            aws ecs update-service \
-                                --cluster production-cluster \
-                                --service student-survey-service \
-                                --force-new-deployment
-                            """
-                        }
+                        // Production deployment - using Docker directly
+                        deployCommand = """
+                        sudo docker stop student-survey-container || true
+                        sudo docker rm student-survey-container || true
+                        sudo docker run -d --name student-survey-container \
+                            -p ${DEPLOY_PORT}:${DEPLOY_PORT} \
+                            ${env.DOCKER_FULL_IMAGE}
+                        """
                     } else if (deployEnv == 'staging') {
                         // Staging deployment
                         deployCommand = """
-                        ssh user@staging-server 'docker pull ${FULL_CUSTOM_IMAGE} && \
-                        docker stop student-survey-container || true && \
-                        docker rm student-survey-container || true && \
-                        docker run -d --name student-survey-container \
+                        sudo docker stop student-survey-container || true
+                        sudo docker rm student-survey-container || true
+                        sudo docker run -d --name student-survey-container \
                             -p ${DEPLOY_PORT}:${DEPLOY_PORT} \
-                            ${FULL_CUSTOM_IMAGE}'
+                            ${env.DOCKER_FULL_IMAGE}
                         """
                     } else {
                         // Development deployment - local or dev server
                         deployCommand = """
-                        docker stop student-survey-container || true
-                        docker rm student-survey-container || true
-                        docker run -d --name student-survey-container \
+                        sudo docker stop student-survey-container || true
+                        sudo docker rm student-survey-container || true
+                        sudo docker run -d --name student-survey-container \
                             -p ${DEPLOY_PORT}:${DEPLOY_PORT} \
-                            ${FULL_CUSTOM_IMAGE}
+                            ${env.DOCKER_FULL_IMAGE}
                         """
                     }
                     
@@ -157,18 +154,17 @@ pipeline {
     
     post {
         always {
-            // Clean up
-            sh "rm -f CustomDockerfile"
-            sh "docker system prune -f"
+            // Clean up with sudo permissions
+            sh "rm -f CustomDockerfile || true"
+            sh "sudo docker system prune -f || true"
         }
         success {
             echo "Pipeline completed successfully!"
-            echo "Deployed image: ${FULL_CUSTOM_IMAGE}"
+            echo "Deployed image: ${env.DOCKER_FULL_IMAGE}"
         }
         failure {
             echo "Pipeline failed! Check the logs for details."
-            // Add notifications for failures (email, Slack, etc.)
-            // mail to: 'team@example.com', subject: 'Pipeline failed', body: "Build failed: ${env.BUILD_URL}"
+            // Add notifications for failures if needed
         }
     }
 }
