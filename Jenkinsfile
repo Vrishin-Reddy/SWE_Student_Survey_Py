@@ -72,7 +72,12 @@ pipeline {
         stage('Create Custom Docker Image') {
             steps {
                 script {
+                    // Get API host and port for ARG values
+                    def apiHost = env.API_HOST ?: "localhost"
+                    def apiPort = env.DEPLOY_PORT ?: "8080"
+                    
                     // Create a temporary Dockerfile to extend the base image
+                    // Use ARG instead of direct ENV with variables
                     writeFile file: 'CustomDockerfile', text: """
                         FROM ${BASE_IMAGE}:${IMAGE_TAG}
                         
@@ -80,8 +85,8 @@ pipeline {
                         ENV CORS_ALLOW_ALL_ORIGINS=True
                         ENV CORS_ALLOW_CREDENTIALS=True
                         
-                        # Update API_BASE_URL for HTTPS if needed
-                        ENV API_BASE_URL="https://\${env.API_HOST}:\${DEPLOY_PORT}"
+                        # Define API URL with hardcoded values - Docker doesn't support Jenkins env vars directly
+                        ENV API_BASE_URL="https://${apiHost}:${apiPort}"
                         
                         # Expose the port
                         EXPOSE ${DEPLOY_PORT}
