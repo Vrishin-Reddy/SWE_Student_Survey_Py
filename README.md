@@ -18,7 +18,7 @@ A containerized, RESTful survey application built using **Django**, **Docker**, 
 ## 🚀 Live Demo
 
 You can access the deployed API (if hosted) here:  
-[https://54.84.79.35/k8s/.../api/surveys](https://54.84.79.35/k8s/clusters/c-m-7v596hpd/api/v1/namespaces/default/services/http:swe-micros-loadbalancer:8080/proxy/api/surveys)
+[https://54.84.79.35/k8s/.../api/surveys](https://54.84.79.35/k8s/clusters/c-m-7v596hpd/api/v1/namespaces/default/services/http:student-survey-py-loadbalancer:8080/proxy/)
 
 ---
 
