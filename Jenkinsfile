@@ -3,11 +3,11 @@ pipeline {
     
     environment {
         // Docker image details
-        DOCKER_CREDENTIALS = 'docker-hub-credentials'
-	    BUILD_TIMESTAMP = "${new Date().format("yyyyMMdd-HHmmss")}"
         BASE_IMAGE = 'vrishin/student-survey-api-micro-python'
         IMAGE_TAG = 'new'
         DEPLOY_PORT = "8080"
+        // Docker Hub credentials - use Jenkins credentials instead of hardcoding in production
+        DOCKER_USERNAME = 'vrishin'
     }
     
     parameters {
@@ -79,7 +79,6 @@ pipeline {
                     def apiPort = env.DEPLOY_PORT ?: "8080"
                     
                     // Create a temporary Dockerfile to extend the base image
-                    // Use ARG instead of direct ENV with variables
                     writeFile file: 'CustomDockerfile', text: """
                         FROM ${BASE_IMAGE}:${IMAGE_TAG}
                         
@@ -87,7 +86,7 @@ pipeline {
                         ENV CORS_ALLOW_ALL_ORIGINS=True
                         ENV CORS_ALLOW_CREDENTIALS=True
                         
-                        # Define API URL with hardcoded values - Docker doesn't support Jenkins env vars directly
+                        # Define API URL with hardcoded values
                         ENV API_BASE_URL="https://${apiHost}:${apiPort}"
                         
                         # Expose the port
@@ -103,10 +102,17 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 script {
-                    // Login to Docker Hub
-                    withCredentials([string(credentialsId: 'docker-hub-credentials', variable: 'DOCKER_AUTH')]) {
-                        sh "echo ${DOCKER_AUTH} | docker login -u vrishin --password-stdin"
-                    }
+                    // Store password in Jenkins credentials and use them instead in production
+                    // For this example, we'll use the direct password approach
+                    // Create a credentials binding in Jenkins called 'docker-hub-password' for better security
+                    
+                    // Option 1: Using direct password (not recommended for production)
+                    sh "echo 'ZXcvbnM0981234#' | docker login -u ${DOCKER_USERNAME} --password-stdin"
+                    
+                    // Option 2: Using Jenkins credentials (recommended for production)
+                    // withCredentials([string(credentialsId: 'docker-hub-password', variable: 'DOCKER_PASSWORD')]) {
+                    //     sh "echo \$DOCKER_PASSWORD | docker login -u ${DOCKER_USERNAME} --password-stdin"
+                    // }
                     
                     // Push Docker image
                     sh "docker push ${env.DOCKER_FULL_IMAGE}"
